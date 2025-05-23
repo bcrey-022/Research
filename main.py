@@ -81,7 +81,7 @@ def calculate_similarity(proj1, proj2):
 def get_all_faces_projections(images, mean, eigenvectors):
     return [project_face(face, mean, eigenvectors) for face in images]
 
-def search_face(input_face, mean, eigenvectors, database_labels, db_projections, threshold=60):  
+def search_face(input_face, mean, eigenvectors, database_labels, db_projections, threshold):  
     input_proj = project_face(input_face, mean, eigenvectors)
     best_match_label = None
     best_match_similarity = 0
@@ -96,7 +96,40 @@ def search_face(input_face, mean, eigenvectors, database_labels, db_projections,
     else:
         return None, best_match_similarity
 
-def evaluate_system(images, labels, max_components=10, threshold=60):
+def resize_face():
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Failed to open the camera!")
+        return
+    print("Camera is on. Press SPACE to capture face, ESC to exit.")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to capture frame from camera.")
+            break
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+        for (x, y, w, h) in faces:
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.imshow('Face Detection', frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key == 27:  
+            break
+        elif key == 32:  
+            if len(faces) == 0:
+                print("No faces detected.")
+                continue
+            (x, y, w, h) = faces[0]
+            face_img = gray[y:y+h, x:x+w]
+            face_resized = cv2.resize(face_img, (100, 100))
+            cap.release()
+            cv2.destroyAllWindows()
+            return face_resized
+    cap.release()
+    cv2.destroyAllWindows()
+
+def evaluate_system(face_resized, images, labels, max_components, threshold):
     X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.3, random_state=42)
     mean, eigenvectors = train_eigenfaces(X_train, max_components=max_components)
     train_proj = get_all_faces_projections(X_train, mean, eigenvectors)
@@ -107,9 +140,8 @@ def evaluate_system(images, labels, max_components=10, threshold=60):
     total_time = 0
 
     for face, true_label in zip(X_test, y_test):
-        true_label = input("Masukkan label asli (true label) orang ini: ")
         start_time = time.time()
-        pred_label, similarity = search_face(face, mean, eigenvectors, y_train, train_proj, threshold)
+        pred_label, similarity = search_face(face_resized, mean, eigenvectors, y_train, train_proj, threshold)
         elapsed = time.time() - start_time
         total_time += elapsed
 
@@ -134,41 +166,12 @@ def evaluate_system(images, labels, max_components=10, threshold=60):
     print(f"False Positive Rate: {fpr:.2f}")
     print(f"False Negative Rate: {fnr:.2f}")
 
-def camera_face_detection(mean, eigenvectors, database_labels, db_projections):
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Failed to open the camera!")
-        return
-    print("Camera is on. Press SPACE to capture face, ESC to exit.")
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Failed to capture frame from camera.")
-            break
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
-        for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.imshow('Face Detection', frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:  # ESC
-            break
-        elif key == 32:  # SPACE
-            if len(faces) == 0:
-                print("No faces detected.")
-                continue
-            (x, y, w, h) = faces[0]
-            face_img = gray[y:y+h, x:x+w]
-            face_resized = cv2.resize(face_img, (100, 100))
-            label, similarity = search_face(face_resized, mean, eigenvectors, database_labels, db_projections, threshold=60)
-            if label:
-                print(f"Face recognized as {label} with similarity {similarity:.2f}%")
-            else:
-                print(f"Face not recognized. Similarity: {similarity:.2f}%")
-    cap.release()
-    cv2.destroyAllWindows()
-
+def recognize_face(face_resized, mean, eigenvectors, database_labels, db_projections, threshold):
+    label, similarity = search_face(face_resized, mean, eigenvectors, database_labels, db_projections, threshold)
+    if label:
+        print(f"Face recognized as {label} with similarity {similarity:.2f}%")
+    else:
+        print(f"Face not recognized. Similarity: {similarity:.2f}%")
 
 def main():
     create_db()
@@ -183,8 +186,12 @@ def main():
     print(f"Loaded {len(images)} face images.")
     mean, eigenvectors = train_eigenfaces(images)
     db_projections = get_all_faces_projections(images, mean, eigenvectors)
-    camera_face_detection(mean, eigenvectors, labels, db_projections)
-    evaluate_system(images, labels, max_components=10, threshold=60)
+    face_resized = resize_face()
+    if face_resized is not None:
+        recognize_face(face_resized, mean, eigenvectors, labels, db_projections, threshold=65)
+    else:
+        print("No face captured.")
+    evaluate_system(face_resized, images, labels, max_components=10, threshold=65)
 
 if __name__ == "__main__":
     main()
