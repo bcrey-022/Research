@@ -39,7 +39,7 @@ def load_face_images_from_folder(folder_path, image_size=(100, 100)):
     labels = []
     for filename in os.listdir(folder_path):
         if filename.lower().endswith('.jpg'):
-            label = os.path.splitext("22.jpg")[0]
+            label = os.path.splitext(filename)[0].strip()
             img_path = os.path.join(folder_path, filename)
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
@@ -100,7 +100,6 @@ def evaluate_system(images, labels, max_components=10, threshold=60):
     X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.3, random_state=42)
     mean, eigenvectors = train_eigenfaces(X_train, max_components=max_components)
     train_proj = get_all_faces_projections(X_train, mean, eigenvectors)
-
     total = len(X_test)
     correct = 0
     false_positive = 0
@@ -108,6 +107,7 @@ def evaluate_system(images, labels, max_components=10, threshold=60):
     total_time = 0
 
     for face, true_label in zip(X_test, y_test):
+        true_label = input("Masukkan label asli (true label) orang ini: ")
         start_time = time.time()
         pred_label, similarity = search_face(face, mean, eigenvectors, y_train, train_proj, threshold)
         elapsed = time.time() - start_time
@@ -126,6 +126,9 @@ def evaluate_system(images, labels, max_components=10, threshold=60):
     fnr = false_negative / total if total > 0 else 0
 
     print("\n=== Evaluation Result ===")
+    print(f"Max Component: {max_components}")
+    print(f"Threshold: {threshold}")
+    print(f"True label: {true_label}, Predicted: {pred_label}, Similarity: {similarity:.2f}%")
     print(f"Accuracy: {accuracy:.2f}")
     print(f"Average Matching Time: {avg_time:.4f} seconds")
     print(f"False Positive Rate: {fpr:.2f}")
