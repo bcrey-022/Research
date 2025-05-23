@@ -3,8 +3,10 @@ import os
 import cv2
 import sqlite3
 import hashlib
+import time
 from numpy.linalg import norm
 from numpy import dot
+from sklearn.model_selection import train_test_split
 
 DB_NAME = 'database.db'
 
@@ -37,7 +39,7 @@ def load_face_images_from_folder(folder_path, image_size=(100, 100)):
     labels = []
     for filename in os.listdir(folder_path):
         if filename.lower().endswith('.jpg'):
-            label = os.path.splitext(filename)[0]
+            label = os.path.splitext("22.jpg")[0]
             img_path = os.path.join(folder_path, filename)
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
@@ -57,9 +59,9 @@ def hash_image(img):
     img_bytes = img.tobytes()
     return hashlib.sha256(img_bytes).hexdigest()
 
-def train_eigenfaces(images):
+def train_eigenfaces(images, max_components=10):
     data = np.array([img.flatten() for img in images], dtype=np.float32)
-    mean, eigenvectors = cv2.PCACompute(data, mean=None, maxComponents=5)
+    mean, eigenvectors = cv2.PCACompute(data, mean=None, maxComponents=max_components)
     print(f"Data shape for PCA: {data.shape}")
     return mean, eigenvectors
 
@@ -79,7 +81,7 @@ def calculate_similarity(proj1, proj2):
 def get_all_faces_projections(images, mean, eigenvectors):
     return [project_face(face, mean, eigenvectors) for face in images]
 
-def search_face(input_face, mean, eigenvectors, database_labels, db_projections, threshold=30):  
+def search_face(input_face, mean, eigenvectors, database_labels, db_projections, threshold=60):  
     input_proj = project_face(input_face, mean, eigenvectors)
     best_match_label = None
     best_match_similarity = 0
@@ -93,6 +95,41 @@ def search_face(input_face, mean, eigenvectors, database_labels, db_projections,
         return best_match_label, best_match_similarity
     else:
         return None, best_match_similarity
+
+def evaluate_system(images, labels, max_components=10, threshold=60):
+    X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.3, random_state=42)
+    mean, eigenvectors = train_eigenfaces(X_train, max_components=max_components)
+    train_proj = get_all_faces_projections(X_train, mean, eigenvectors)
+
+    total = len(X_test)
+    correct = 0
+    false_positive = 0
+    false_negative = 0
+    total_time = 0
+
+    for face, true_label in zip(X_test, y_test):
+        start_time = time.time()
+        pred_label, similarity = search_face(face, mean, eigenvectors, y_train, train_proj, threshold)
+        elapsed = time.time() - start_time
+        total_time += elapsed
+
+        if pred_label == true_label:
+            correct += 1
+        elif pred_label is None:
+            false_negative += 1
+        else:
+            false_positive += 1
+
+    accuracy = correct / total if total > 0 else 0
+    avg_time = total_time / total if total > 0 else 0
+    fpr = false_positive / total if total > 0 else 0
+    fnr = false_negative / total if total > 0 else 0
+
+    print("\n=== Evaluation Result ===")
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"Average Matching Time: {avg_time:.4f} seconds")
+    print(f"False Positive Rate: {fpr:.2f}")
+    print(f"False Negative Rate: {fnr:.2f}")
 
 def camera_face_detection(mean, eigenvectors, database_labels, db_projections):
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -121,13 +158,14 @@ def camera_face_detection(mean, eigenvectors, database_labels, db_projections):
             (x, y, w, h) = faces[0]
             face_img = gray[y:y+h, x:x+w]
             face_resized = cv2.resize(face_img, (100, 100))
-            label, similarity = search_face(face_resized, mean, eigenvectors, database_labels, db_projections, threshold=1)
+            label, similarity = search_face(face_resized, mean, eigenvectors, database_labels, db_projections, threshold=60)
             if label:
                 print(f"Face recognized as {label} with similarity {similarity:.2f}%")
             else:
                 print(f"Face not recognized. Similarity: {similarity:.2f}%")
     cap.release()
     cv2.destroyAllWindows()
+
 
 def main():
     create_db()
@@ -143,6 +181,7 @@ def main():
     mean, eigenvectors = train_eigenfaces(images)
     db_projections = get_all_faces_projections(images, mean, eigenvectors)
     camera_face_detection(mean, eigenvectors, labels, db_projections)
+    evaluate_system(images, labels, max_components=10, threshold=60)
 
 if __name__ == "__main__":
     main()
