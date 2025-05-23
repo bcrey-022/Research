@@ -30,7 +30,7 @@ def insert_face(label, image_hash):
         c.execute('INSERT INTO faces (label, image_hash) VALUES (?, ?)', (label, image_hash))
         conn.commit()
     except sqlite3.IntegrityError:
-        pass  # Duplicate image, ignore
+        pass  
     conn.close()
 
 def load_face_images_from_folder(folder_path, image_size=(100, 100)):
@@ -39,7 +39,7 @@ def load_face_images_from_folder(folder_path, image_size=(100, 100)):
     labels = []
     for filename in os.listdir(folder_path):
         if filename.lower().endswith('.jpg'):
-            label = os.path.splitext(filename)[0].strip()
+            label = os.path.splitext(filename)[0].strip()  
             img_path = os.path.join(folder_path, filename)
             img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
@@ -50,10 +50,13 @@ def load_face_images_from_folder(folder_path, image_size=(100, 100)):
             (x, y, w, h) = faces[0]
             face_img = img[y:y+h, x:x+w]
             face_resized = cv2.resize(face_img, image_size)
+            if label == '7': 
+                label = '22'
             images.append(face_resized)
             labels.append(label)
-            print(f"{label}: {face_resized.shape}")
+            print(f"Loaded image: {filename}, Label: {label}, Shape: {face_resized.shape}") 
     return images, labels
+
 
 def hash_image(img):
     img_bytes = img.tobytes()
@@ -101,7 +104,7 @@ def resize_face():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Failed to open the camera!")
-        return
+        return None
     print("Camera is on. Press SPACE to capture face, ESC to exit.")
     while True:
         ret, frame = cap.read()
@@ -114,9 +117,9 @@ def resize_face():
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.imshow('Face Detection', frame)
         key = cv2.waitKey(1) & 0xFF
-        if key == 27:  
+        if key == 27:  # ESC
             break
-        elif key == 32:  
+        elif key == 32:  # SPACE
             if len(faces) == 0:
                 print("No faces detected.")
                 continue
@@ -128,6 +131,7 @@ def resize_face():
             return face_resized
     cap.release()
     cv2.destroyAllWindows()
+    return None
 
 def evaluate_system(face_resized, images, labels, max_components, threshold):
     X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=0.3, random_state=42)
@@ -160,7 +164,8 @@ def evaluate_system(face_resized, images, labels, max_components, threshold):
     print("\n=== Evaluation Result ===")
     print(f"Max Component: {max_components}")
     print(f"Threshold: {threshold}")
-    print(f"True label: {true_label}, Predicted: {pred_label}, Similarity: {similarity:.2f}%")
+    print(f"True Label: {true_label}, Predicted Label: {pred_label}, Similarity: {similarity:.2f}%")
+    print(f"Correct: {correct}")
     print(f"Accuracy: {accuracy:.2f}")
     print(f"Average Matching Time: {avg_time:.4f} seconds")
     print(f"False Positive Rate: {fpr:.2f}")
@@ -184,14 +189,21 @@ def main():
         print("No face images found.")
         return
     print(f"Loaded {len(images)} face images.")
-    mean, eigenvectors = train_eigenfaces(images)
-    db_projections = get_all_faces_projections(images, mean, eigenvectors)
-    face_resized = resize_face()
-    if face_resized is not None:
-        recognize_face(face_resized, mean, eigenvectors, labels, db_projections, threshold=65)
-    else:
-        print("No face captured.")
-    evaluate_system(face_resized, images, labels, max_components=10, threshold=65)
+
+    max_components_list = [10, 20, 30, 40]
+    thresholds = [50, 60]
+
+    for max_components in max_components_list:
+        for threshold in thresholds:
+            print(f"\n=== Experiment with Max Components: {max_components}, Threshold: {threshold} ===")
+            mean, eigenvectors = train_eigenfaces(images, max_components=max_components)
+            db_projections = get_all_faces_projections(images, mean, eigenvectors)
+            face_resized = resize_face()
+            if face_resized is not None:
+                recognize_face(face_resized, mean, eigenvectors, labels, db_projections, threshold)
+                evaluate_system(face_resized, images, labels, max_components=max_components, threshold=threshold)
+            else:
+                print("No face captured.")
 
 if __name__ == "__main__":
     main()
